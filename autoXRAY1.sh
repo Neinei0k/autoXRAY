@@ -1,42 +1,43 @@
 #!/bin/bash
 
-# Цвета для вывода
+# Colors for printing
 GRN='\033[1;32m'
 RED='\033[1;31m'
 YEL='\033[1;33m'
 NC='\033[0m' # No Color
 
-[[ $EUID -eq 0 ]] || { echo -e "${RED}❌ скрипту нужны root права ${NC}"; exit 1; }
+[[ $EUID -eq 0 ]] || { echo -e "${RED}❌ script requires root ${NC}"; exit 1; }
 
 DOMAIN=$1
 
 if [ -z "$DOMAIN" ]; then
-    echo -e "${RED}❌ Ошибка: домен не задан.${NC}"
+    echo -e "${RED}❌ Error: domain is not set.${NC}"
     exit 1
 fi
 
-echo -e "${YEL}Обновление и установка необходимых пакетов...${NC}"
-apt-get update && apt-get install curl jq dnsutils openssl nginx certbot wget tar -y
+echo -e "${YEL}Update and installation of prerequisites...${NC}"
+apt-get update
+apt-get install curl jq dnsutils openssl nginx certbot wget tar -y
 systemctl enable --now nginx
 
 LOCAL_IP=$(hostname -I | awk '{print $1}')
 DNS_IP=$(dig +short "$DOMAIN" | grep '^[0-9]')
 
 if [ "$LOCAL_IP" != "$DNS_IP" ]; then
-    echo -e "${RED}❌ Внимание: IP-адрес ($LOCAL_IP) не совпадает с A-записью $DOMAIN ($DNS_IP).${NC}"
-    echo -e "${YEL}Правильно укажите одну A-запись для вашего домена в ДНС - $LOCAL_IP ${NC}"
+    echo -e "${RED}❌ Warning: IP-address ($LOCAL_IP) does not match A-record $DOMAIN ($DNS_IP).${NC}"
+    echo -e "${YEL}Correctrly set one A-record for your DNS domain - $LOCAL_IP ${NC}"
     
-	read -p "Продолжить на ваш страх и риск? (y/N):" choice
+	read -p "Continue? (y/N):" choice
 
 	if [[ ! "$choice" =~ ^[Yy]$ ]]; then
-		echo -e "${RED}Выполнение скрипта прервано.${NC}"
+		echo -e "${RED}Script was stopped.${NC}"
 		exit 1
 	fi
-    echo -e "${YEL}Продолжение выполнения скрипта...${NC}"
+    echo -e "${YEL}Continue script execution...${NC}"
 fi
 
-# === ВОПРОСЫ ПОЛЬЗОВАТЕЛЮ ===
-read -p "$(echo -e "\n${YEL}Устанавливать WARP для обхода блокировок некоторых сайтов? (y/n, по умолчанию y): ${NC}")" choice_warp
+# === User questions ===
+read -p "$(echo -e "\n${YEL}Install WARP for unblocking some websites? (y/n, default y): ${NC}")" choice_warp
 choice_warp=${choice_warp:-y}
 if [[ "$choice_warp" =~ ^[Yy]$ ]]; then
     TAG_WARP="warp"
@@ -46,7 +47,7 @@ else
     INSTALL_WARP=false
 fi
 
-read -p "$(echo -e "\n${YEL}Устанавливать MTProxy для Telegram? (y/n, по умолчанию y): ${NC}")" choice_mtp
+read -p "$(echo -e "\n${YEL}Install MTProxy for Telegram? (y/n, default y): ${NC}")" choice_mtp
 choice_mtp=${choice_mtp:-y}
 if [[ "$choice_mtp" =~ ^[Yy]$ ]]; then
     TARGET_MTP="127.0.0.1:500"
@@ -56,10 +57,10 @@ else
     INSTALL_MTP=false
 fi
 
-echo -e "\n${YEL}Выберите TLS fingerprint для маскировки трафика:${NC}"
+echo -e "\n${YEL}Choose TLS fingerprint for traffic masking:${NC}"
 echo "1) chrome    3) safari   5) android   7) 360"
 echo "2) firefox   4) ios      6) edge      8) qq"
-read -p "Введите номер [1-8] (по умолчанию 2 - firefox): " fp_choice
+read -p "Enter number [1-8] (default 2 - firefox): " fp_choice
 
 case $fp_choice in
     1) fpBro="chrome" ;;
@@ -73,15 +74,15 @@ case $fp_choice in
 esac
 # ============================
 
-# Включаем BBR
+# Enable BBR
 bbr=$(sysctl -a | grep net.ipv4.tcp_congestion_control)
 if [ "$bbr" = "net.ipv4.tcp_congestion_control = bbr" ]; then
-    echo -e "${GRN}BBR уже запущен${NC}"
+    echo -e "${GRN}BBR is already running${NC}"
 else
     echo "net.core.default_qdisc=fq" > /etc/sysctl.d/999-autoXRAY.conf
     echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.d/999-autoXRAY.conf
     sysctl --system
-    echo -e "${GRN}BBR активирован${NC}"
+    echo -e "${GRN}BBR was activated${NC}"
 fi
 
 
@@ -92,31 +93,31 @@ root    soft    nofile  1048576
 root    hard    nofile  1048576
 EOF
 ulimit -n 65535
-echo -e "${GRN}Лимиты применены. Текущий ulimit -n: $(ulimit -n) ${NC}"
+echo -e "${GRN}Limits set. Current ulimit -n: $(ulimit -n) ${NC}"
 
 
-# Создание директории сайта
+# Create web-site directory
 WEB_PATH="/var/www/$DOMAIN"
 mkdir -p "$WEB_PATH"
 
-# Генерируем сайт маскировку
+# Generate web-site masking
 bash -c "$(curl -L https://github.com/xVRVx/autoXRAY/raw/refs/heads/main/test/gen_page2.sh)" -- $WEB_PATH
 
-# Установка Xray
+# Install Xray
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
 
-# Блок CERTBOT - START
+# Block CERTBOT - START
 
-# Определяем путь к конфигу nginx
+# Determining path to nginx
 if [ -f /etc/nginx/sites-available/default ]; then
     CONFIG_PATH="/etc/nginx/sites-available/default"
-	echo -e "${GRN}Обнаружена стандартная сборка nginx. ${NC}"
+	echo -e "${GRN}Found standard installation of nginx. ${NC}"
 elif [ -f /etc/nginx/conf.d/default.conf ]; then
     CONFIG_PATH="/etc/nginx/conf.d/default.conf"
-	echo -e "${YEL}Обнаружена нестандартная сборка nginx. Предварительная настройка NGINX для CERTBOT ${NC}"
+	echo -e "${YEL}Found non-standard installation of nginx. Pre-configuration of NGINX for CERTBOT ${NC}"
 	mkdir -p /var/www/html
 
-# Записываем временный конфиг
+# Write temporary config
 cat <<EOF > "$CONFIG_PATH"
 server {
 	listen 80 default_server;
@@ -134,14 +135,14 @@ server {
 EOF
 	systemctl reload nginx
 else
-    echo -e "${RED}Не найден ни один default конфиг nginx${NC}"
+    echo -e "${RED}Not one default config nginx was found${NC}"
     exit 1
 fi
 
 
 mkdir -p /var/lib/xray/cert/
 
-### Проверить
+### Check
 cp /etc/letsencrypt/live/$DOMAIN/fullchain.pem /var/lib/xray/cert/fullchain.pem
 cp /etc/letsencrypt/live/$DOMAIN/privkey.pem /var/lib/xray/cert/privkey.pem
 chmod 744 /var/lib/xray/cert/privkey.pem
@@ -157,23 +158,23 @@ RET=$?
 
 if [ $RET -eq 0 ]; then
   echo -e "\n${GRN}========================================"
-  echo    "✅  Команда certbot успешно выполнена"
-  echo    "✅  Сертификат https от letsencrypt ПОЛУЧЕН"
+  echo    "✅  Command certbot finished successfully"
+  echo    "✅  Certificate https from letsencrypt was issued"
   echo    "========================================"
   echo -e "${NC}"
 else
   echo -e "\n${RED}========================================"
-  echo    "❌  CERTBOT ЗАВЕРШИЛСЯ С ОШИБКОЙ"
-  echo    "❌  Сертификат https от letsencrypt НЕ ПОЛУЧЕН!"
-  echo    "❌  Смотрите выше логи процесса получения сертификата"
-  echo    "❌  Код возврата: $RET"
+  echo    "❌  CERTBOT stopped with error"
+  echo    "❌  Certificate https from letsencrypt was not issued!"
+  echo    "❌  Read above logs of certification issue process"
+  echo    "❌  Return code: $RET"
   echo    "========================================"
   echo -e "${NC}"
   exit 1
 fi
-# Блок CERTBOT - END
+# Block CERTBOT - END
 
-# конфиг nginx
+# config nginx
 
 path_xhttp=$(openssl rand -base64 15 | tr -dc 'a-z0-9' | head -c 6)
 
@@ -251,12 +252,12 @@ server {
 EOF
 
 systemctl restart nginx
-echo -e "${GRN}✅ Конфигурация nginx обновлена.${NC}"
+echo -e "${GRN}✅ Configuration nginx was updated.${NC}"
 
 
 SCRIPT_DIR=/usr/local/etc/xray
 
-# Генерируем переменные
+# Generate variables
 xray_uuid_vrv=$(xray uuid)
 
 key_output=$(xray x25519)
@@ -278,22 +279,22 @@ socksUser=$(openssl rand -base64 16 | tr -dc 'A-Za-z0-9' | head -c 6)
 socksPasw=$(openssl rand -base64 32 | tr -dc 'A-Za-z0-9' | head -c 16)
 
 
-# Установка WARP-cli
+# Install WARP-cli
 if [ "$INSTALL_WARP" = true ]; then
     if ss -tuln | grep -q ":40000 "; then
-        echo -e "${GRN}WARP-cli (Socks5 на порту 40000) уже работает. Пропускаем.${NC}"
+        echo -e "${GRN}WARP-cli (Socks5 on port 40000) is already running. Skip.${NC}"
     else
-        echo -e "${GRN}Установка WARP-cli (автоматически)...${NC}"
+        echo -e "${GRN}Installation WARP-cli (automatic)...${NC}"
         echo -e "1\n1\n40000" | bash <(curl -fsSL https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh) w
     fi
 else
-    echo -e "${YEL}Установка WARP пропущена по выбору пользователя.${NC}"
+    echo -e "${YEL}Installation WARP was skipped by user's choice.${NC}"
 fi
 
-# Экспортируем переменные для envsubst
+# Variable export for envsubst
 export xray_uuid_vrv xray_privateKey_vrv xray_publicKey_vrv xray_shortIds_vrv xray_sspasw_vrv DOMAIN path_subpage path_xhttp WEB_PATH socksUser socksPasw TARGET_MTP TAG_WARP fpBro
 
-# Создаем JSON конфигурацию сервера
+# Create JSON config for the server
 cat << 'EOF' | envsubst > "$SCRIPT_DIR/config.json"
 {
   "log": {
@@ -667,7 +668,7 @@ cat << 'EOF' | envsubst > "$SCRIPT_DIR/config.json"
 
 EOF
 
-# Создаем JSON конфигурацию клиента
+# Create JSON config for client
 print_config() {
   local PROXY_OUTBOUND="$1"
   local REMARK="$2"
@@ -931,7 +932,7 @@ OUT_XHTTP='{
 }'
 
 # --- Config 5
-# Важно: alpn h2 обязателен для корректной работы через Nginx
+# Important: alpn h2 is requires for correct work of Nginx
 OUT_GRPC='{
   "tag": "proxy",
   "protocol": "vless",
@@ -1022,12 +1023,12 @@ HYSTERIA2='{
 ) | envsubst > "$WEB_PATH/$path_subpage.json"
 
 systemctl restart xray
-echo -e "Перезапуск XRAY"
+echo -e "Retstart XRAY"
 
-# Формирование ссылок
+# Make links
 subPageLink="https://$DOMAIN/$path_subpage.json"
 
-# Формирование ссылок
+# Make links
 
 hy2="hy2://${xray_shortIds_vrv}@$DOMAIN:8080/?sni=$DOMAIN&alpn=h3"
 
@@ -1058,14 +1059,14 @@ CONFIGS_ARRAY=(
 ALL_LINKS_TEXT=""
 
 if [ "$INSTALL_MTP" = true ]; then
-    echo -e "\n\n${GRN}Устанавливаем MTProto FakeTLS ${NC}"
+    echo -e "\n\n${GRN}Install MTProto FakeTLS ${NC}"
     source <(curl -sL https://github.com/xVRVx/autoXRAY/raw/refs/heads/main/test/telemt-test.sh)
 else
-    echo -e "\n\n${YEL}Установка MTProto FakeTLS пропущена.${NC}"
+    echo -e "\n\n${YEL}Install MTProto FakeTLS was skipped.${NC}"
     MTProto=""
 fi
 
-# --- ЗАПИСЬ HEAD (СТАТИКА, МИНИФИЦИРОВАННЫЕ СТИЛИ И JS) ---
+# --- RECORD HEAD (STATISTICS, MINIMIZED STYLES AND JS) ---
 cat > "$WEB_PATH/$path_subpage.html" <<'EOF'
 <!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
 <meta name="robots" content="noindex,nofollow">
@@ -1081,7 +1082,7 @@ function copyText(e,t){navigator.clipboard.writeText(document.getElementById(e).
 </head><body>
 EOF
 
-# --- ЗАПИСЬ BODY (ДИНАМИЧЕСКИЕ ДАННЫЕ) ---
+# --- RECORD BODY (DYNAMIC DATA) ---
 cat >> "$WEB_PATH/$path_subpage.html" <<EOF
 
 <h2>📂 Ссылка на подписку (готовый конфиг клиента с роутингом)</h2>
@@ -1154,7 +1155,7 @@ cat >> "$WEB_PATH/$path_subpage.html" <<EOF
 EOF
 
 # --- ФИНАЛЬНАЯ ПРОВЕРКА ---
-echo -e "\n${YEL}=== Финальная проверка статусов ===${NC}"
+echo -e "\n${YEL}=== Final status check ===${NC}"
 
 # Проверка WARP-cli (Socks5 порт 40000)
 if [ "$INSTALL_WARP" = true ]; then
@@ -1162,7 +1163,7 @@ if [ "$INSTALL_WARP" = true ]; then
         echo -e "WARP-cli: ${GRN}LISTENING${NC}"
     else
         echo -e "WARP-cli: ${RED}NOT LISTENING${NC}"
-        echo "Возникла ошибка! Возможные пути решения проблемы смотрите здесь:"
+        echo "Error! For posible solutions look here:"
         echo "https://github.com/xVRVx/autoXRAY/blob/main/test/warp-readme.md"
     fi
 fi
@@ -1173,14 +1174,14 @@ if [ "$INSTALL_MTP" = true ]; then
 fi
 
 
-# Проверка Nginx
+# Check Nginx
 if systemctl is-active --quiet nginx; then
     echo -e "Nginx: ${GRN}RUNNING${NC}"
 else
     echo -e "Nginx: ${RED}STOPPED/ERROR${NC}"
 fi
 
-# Проверка XRAY
+# Check XRAY
 if systemctl is-active --quiet xray; then
     echo -e "XRAY: ${GRN}RUNNING${NC}"
 else
@@ -1203,19 +1204,19 @@ $linkRTY1
 ${YEL}VLESS XHTTP TLS EXTRA ${NC}
 $linkRTY2
 
-${YEL}Ваша json страничка подписки ${NC}
+${YEL}Your json subscription page ${NC}
 $subPageLink
 
-${YEL}Ссылка на сохраненные конфиги ${NC}
+${YEL}Link to saved configs ${NC}
 ${GRN}$configListLink ${NC}
 
-Скопируйте подписку в специализированное приложение:
-- iOS: Happ или v2RayTun или v2rayN
-- Android: Happ или v2RayTun или v2rayNG
-- Windows: конфиги Happ или winLoadXRAY или v2rayN
-	для vless v2RayTun или Throne
+Copy subscription to an app:
+- iOS: Happ or v2RayTun or v2rayN
+- Android: Happ or v2RayTun or v2rayNG
+- Windows: configs Happ or winLoadXRAY or v2rayN
+	for vless v2RayTun or Throne
 
-Открыт локальный socks5 на порту 10808, 2080 и http на 10809.
+Open local socks5 on portу 10808, 2080 and http on 10809.
 
-${GRN}Поддержать автора: https://github.com/xVRVx/autoXRAY ${NC}
+${GRN}Support author: https://github.com/xVRVx/autoXRAY ${NC}
 "
